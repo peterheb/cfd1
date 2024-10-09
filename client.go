@@ -247,7 +247,7 @@ func (c *Client) sendRequest(ctx context.Context, method, path string, body any,
 
 	var apiResp apiResponse
 	if err := json.Unmarshal(responseBody, &apiResp); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("decoding response: %w\n%s", err, string(responseBody))
 	}
 
 	if !apiResp.Success {
