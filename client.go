@@ -245,6 +245,11 @@ func (c *Client) sendRequest(ctx context.Context, method, path string, body any,
 		return fmt.Errorf("reading response body: %w", err)
 	}
 
+	if resp.StatusCode >= 500 {
+		// sometimes Cloudflare doesn't return JSON in this case, so wrap this as a different error
+		return newD1Error(resp.StatusCode, string(responseBody))
+	}
+
 	var apiResp apiResponse
 	if err := json.Unmarshal(responseBody, &apiResp); err != nil {
 		return fmt.Errorf("decoding response: %w\n%s", err, string(responseBody))
