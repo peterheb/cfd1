@@ -53,12 +53,16 @@ func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn := &conn{
-		client:     client,
-		databaseID: c.cfg.DatabaseID,
-		accountID:  c.cfg.AccountID,
+
+	h, err := client.GetHandle(ctx, c.cfg.DatabaseNameOrUUID)
+	if err != nil {
+		return nil, err
 	}
-	return conn, nil
+
+	newConn := &conn{
+		handle: h,
+	}
+	return newConn, nil
 }
 
 func (c *connector) Driver() driver.Driver {
@@ -74,9 +78,9 @@ func (d *d1Driver) createClient(cfg *config) (CFD1Client, error) {
 }
 
 type config struct {
-	AccountID  string
-	APIToken   string
-	DatabaseID string
+	AccountID          string
+	APIToken           string
+	DatabaseNameOrUUID string
 }
 
 func parseDSN(dsn string) (*config, error) {
@@ -94,7 +98,7 @@ func parseDSN(dsn string) (*config, error) {
 	}
 
 	// Extract database_id from host
-	cfg.DatabaseID = u.Host
+	cfg.DatabaseNameOrUUID = u.Host
 
 	// Validate the config
 	if cfg.AccountID == "" {
@@ -103,7 +107,7 @@ func parseDSN(dsn string) (*config, error) {
 	if cfg.APIToken == "" {
 		return nil, errors.New("api_token (password) is required in the DSN")
 	}
-	if cfg.DatabaseID == "" {
+	if cfg.DatabaseNameOrUUID == "" {
 		return nil, errors.New("database_id (host) is required in the DSN")
 	}
 
@@ -111,9 +115,7 @@ func parseDSN(dsn string) (*config, error) {
 }
 
 type conn struct {
-	client     CFD1Client
-	databaseID string
-	accountID  string
+	handle *Handle
 }
 
 func (c *conn) Prepare(query string) (driver.Stmt, error) {
@@ -146,13 +148,13 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		return nil, driver.ErrBadConn
 	}
 	params := namedValuesToAny(args)
-	result, err := c.client.Query(ctx, c.databaseID, query, params...)
+	_, err := c.handle.Query(ctx, query, params...)
 	if err != nil {
 		return nil, err
 	}
 	return &driverResult{
-		rowsAffected: int64(result.Meta.RowsWritten),
-		lastInsertID: int64(result.Meta.LastRowID),
+		rowsAffected: int64(c.handle.LastMeta().RowsWritten),
+		lastInsertID: int64(c.handle.LastRowID()),
 	}, nil
 }
 
@@ -162,35 +164,34 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 		return nil, driver.ErrBadConn
 	}
 	params := namedValuesToAny(args)
-	result, err := c.client.Query(ctx, c.databaseID, query, params...)
+	result, err := c.handle.Query(ctx, query, params...)
 	if err != nil {
 		return nil, err
 	}
 
-	columns := make([]string, 0, len(result.Results[0]))
-	for col := range result.Results[0] {
+	columns := make([]string, 0, len(result[0]))
+	for col := range result[0] {
 		columns = append(columns, col)
 	}
 
 	return &rows{
 		columns: columns,
-		rows:    result.Results,
+		rows:    result,
 	}, nil
 }
 
 // Implement Pinger interface
 func (c *conn) Ping(ctx context.Context) error {
-	_, err := c.client.Query(ctx, c.databaseID, "SELECT 1")
-	return err
+	return c.handle.Ping(ctx)
 }
 
 func (c *conn) ResetSession(ctx context.Context) error {
-	// We don't really keep connections open so this is a no-op
+	// We don't keep connections open so this is a no-op
 	return nil
 }
 
 func (c *conn) IsValid() bool {
-	return c.client != nil
+	return c.handle != nil
 }
 
 type stmt struct {
@@ -228,13 +229,8 @@ type rows struct {
 	current int
 }
 
-func (r *rows) Columns() []string {
-	return r.columns
-}
-
-func (r *rows) Close() error {
-	return nil
-}
+func (r *rows) Columns() []string { return r.columns }
+func (r *rows) Close() error      { return nil }
 
 func (r *rows) Next(dest []driver.Value) error {
 	if r.current >= len(r.rows) {
@@ -253,13 +249,8 @@ type driverResult struct {
 	rowsAffected int64
 }
 
-func (r *driverResult) LastInsertId() (int64, error) {
-	return r.lastInsertID, nil
-}
-
-func (r *driverResult) RowsAffected() (int64, error) {
-	return r.rowsAffected, nil
-}
+func (r *driverResult) LastInsertId() (int64, error) { return r.lastInsertID, nil }
+func (r *driverResult) RowsAffected() (int64, error) { return r.rowsAffected, nil }
 
 func valuesToNamedValues(vals []driver.Value) []driver.NamedValue {
 	nvs := make([]driver.NamedValue, len(vals))

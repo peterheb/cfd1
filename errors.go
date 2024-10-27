@@ -10,6 +10,10 @@ import (
 // error 7500, typically indicating an error from the SQLite engine.
 var ErrSQLite = errors.New("SQLite error")
 
+// ErrNotFound is returned from GetHandle if the requested database does not
+// exist.
+var ErrNotFound = errors.New("database not found")
+
 // D1Error represents an error returned by the D1 API other than an [ErrSQLite].
 type D1Error struct {
 	Code    int    `json:"code"`

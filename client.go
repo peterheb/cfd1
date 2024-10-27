@@ -2,12 +2,9 @@
 Package cfd1 provides a client and database/sql driver for interacting with
 Cloudflare's D1 database service.
 
-D1 is a serverless SQL database from Cloudflare that implements a
-SQLite-compatible query engine. This package offers two ways to interact with D1
-databases:
-
- 1. A direct implementation of the Cloudflare API
- 2. A [database/sql] compatible driver
+D1 is a serverless SQL database from Cloudflare that implements the SQLite query
+engine. This package offers a lightweight wrapper around the D1 API as well as a
+[database/sql] compatible driver.
 
 # Direct API Usage
 
@@ -16,30 +13,44 @@ your Cloudflare account ID and API token:
 
 	client := cfd1.NewClient("your-account-id", "your-api-token")
 
-You can then use this client to create, manage, and query D1 databases. The D1
-API supports multiple statements in one [Query] operation, which are executed as
-a batch.
+The returned client can be used create, manage, and query D1 databases and
+provides a 1:1 wrapper around the D1 API.
+
+To perform operations on a single database, a [Handle] can be obtained from the
+client using a database name or UUID and subsequently queried:
+
+	handle, err := client.GetHandle("your-database-name-or-UUID")
+	// check error
+	results, err := handle.Query("SELECT * FROM people WHERE age > ?", 21)
+	// check error; results is a []map[string]any
+
+The D1 API supports multiple semicolon-separated statements in a single
+[Handle.Query] operation, which are executed as a batch. A query can be up to
+100KB and contain up to 100 placeholders.
 
 # database/sql Driver Usage
 
-To use the [database/sql] driver, import this library with the blank identifier
-so that its init function registers the driver:
+To use the [database/sql] driver, import this library with the blank identifier.
+Its init function registers the driver as "cfd1":
 
 	import (
 	    database/sql
 	    _ "github.com/peterheb/cfd1"
 	)
 
-Uou can then open a connection to a D1 database using a DSN string in URI
+You can then open a connection to a D1 database using a DSN string in URI
 format:
 
 	db, err := sql.Open("cfd1",
-	    "d1://your-account-id:your-api-token@database-uuid")
+	    "d1://your-account-id:your-api-token@database-name-or-UUID")
+
+All three components of the DSN are required.
 
 Note that this driver does not support transactions through db.Begin(), as
-connections to D1 over the REST API are not persistent -- every query is a new
-round-trip and connection. Multiple semicolon- separated statements in a single
-query are supported, however, and can include transactions.
+connections to D1 over the REST API are not persistent -- every query creates a
+new HTTP round-trip to the API and connection. Multiple semicolon-separated
+statements in a single query are supported, however, and can include
+transactions.
 
 # Disclaimer
 
@@ -61,6 +72,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -78,6 +90,7 @@ const (
 // monitoring. This interface can be used to create mock implementations for
 // testing purposes.
 type CFD1Client interface {
+	GetHandle(ctx context.Context, dbNameOrUUID string) (*Handle, error)
 	CreateDatabase(ctx context.Context, name string, primaryLocationHint LocationHint) (*DatabaseDetails, error)
 	DeleteDatabase(ctx context.Context, databaseID string) error
 	GetDatabase(ctx context.Context, databaseID string) (*DatabaseDetails, error)
@@ -92,7 +105,7 @@ type CFD1Client interface {
 // Client interacts with the Cloudflare D1 API. It provides methods for managing
 // databases and executing queries. The client keeps track of rows read and
 // written across all operations, which can be useful for cost monitoring and
-// optimization.
+// optimization. A Client is safe for concurrent use.
 type Client struct {
 	accountID   string
 	apiToken    string
@@ -121,6 +134,10 @@ type apiResponseInfo struct {
 	Count      int `json:"count"`
 	TotalCount int `json:"total_count"`
 }
+
+var (
+	regexUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$`)
+)
 
 // WithEndpoint sets a custom endpoint URL for the D1 client. The default
 // endpoint is "https://api.cloudflare.com/client/v4".
@@ -208,6 +225,44 @@ func (c *Client) ResetCounters() {
 	c.rowsWritten = 0
 }
 
+// GetHandle returns a new [Handle] for the specified database name or UUID. If
+// the parameter is a UUID, it is used directly to create a handle and not
+// verified; use [Handle.Ping] to verify if a database exists on the other side
+// of a handle. If the parameter is a name, the database with that name is
+// looked up via an API call, and its UUID is used. ErrNotFound is returned if a
+// database with that name could not be found. A handle is safe for concurrent
+// use.
+func (c *Client) GetHandle(ctx context.Context, dbNameOrUUID string) (*Handle, error) {
+	dbid, err := c.FindDatabase(ctx, dbNameOrUUID)
+	if err != nil {
+		return nil, err
+	}
+	return &Handle{client: c, dbID: dbid}, nil
+}
+
+// FindDatabase looks up a database UUID by name or UUID. If the input is
+// already a UUID, it is returned directly. If the input is a name, the database
+// is looked up via the API and its UUID is returned. ErrNotFound is returned if
+// the database does not exist.
+func (c *Client) FindDatabase(ctx context.Context, dbNameOrUUID string) (string, error) {
+	isUUID := regexUUID.MatchString(dbNameOrUUID)
+	if isUUID {
+		return dbNameOrUUID, nil
+	}
+
+	dbs, err := c.ListDatabases(ctx, dbNameOrUUID)
+	if err != nil {
+		return "", fmt.Errorf("listing databases: %w", err)
+	}
+	for _, db := range dbs {
+		if db.Name == dbNameOrUUID {
+			return db.UUID, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: %s", ErrNotFound, dbNameOrUUID)
+}
+
 // sendRequest sends an HTTP request to the Cloudflare API and processes the
 // response.
 func (c *Client) sendRequest(ctx context.Context, method, path string, body any, v any, pagInfo *apiResponseInfo) error {
@@ -246,7 +301,8 @@ func (c *Client) sendRequest(ctx context.Context, method, path string, body any,
 	}
 
 	if resp.StatusCode >= 500 {
-		// sometimes Cloudflare doesn't return JSON in this case, so wrap this as a different error
+		// sometimes Cloudflare doesn't return JSON in this case, so wrap this
+		// as a different error
 		return newD1Error(resp.StatusCode, string(responseBody))
 	}
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -152,29 +153,30 @@ func (c *Client) pollExportStatus(ctx context.Context, path, bookmark string) (s
 	}
 }
 
-func GetExportReader(url string) (io.ReadCloser, error) {
+// SaveExportToDisk is a helper function that downloads an export from the given
+// URL and saves it to the specified location on disk. It returns an error if
+// the download fails or the file cannot be written.
+func SaveExportToDisk(url, filename string) error {
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("http.Get failed: %w", err)
+		return fmt.Errorf("http.Get failed: %w", err)
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	return resp.Body, nil
-}
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("creating file: %w", err)
+	}
+	defer file.Close()
 
-func GetExportBytes(url string) ([]byte, error) {
-	reader, err := GetExportReader(url)
+	_, err = io.Copy(file, resp.Body)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("copying data: %w", err)
 	}
-	defer reader.Close()
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("reading export data: %w", err)
-	}
-	return data, nil
+
+	return nil
 }
