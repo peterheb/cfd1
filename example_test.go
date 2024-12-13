@@ -1,3 +1,6 @@
+//go:build examples
+// +build examples
+
 // Example demonstrates basic usage of the cfd1 package
 package cfd1_test
 
@@ -33,36 +36,36 @@ func Example() {
 
 	// Create a table
 	_, err = h.Query(context.Background(),
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)`)
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)`)
 	fatalIf(err)
 	fmt.Println("Table created")
 
 	// Insert data
 	_, err = h.Query(context.Background(),
-		`INSERT INTO users (name) VALUES (?)`, "John Doe")
+		`INSERT INTO users (name,age) VALUES (?,?)`, "John Doe", 35)
 	fatalIf(err)
 	fmt.Printf("Inserted user. Last row ID: %d\n", h.LastRowID())
 
 	// Query data
-	result, err := h.Query(context.Background(),
-		`SELECT * FROM users`)
+	var id, age int
+	var name string
+	err = h.QueryRow(context.Background(),
+		`SELECT id, name, age FROM users WHERE id=?`, h.LastRowID()).Scan(&id, &name, &age)
 	fatalIf(err)
-	for _, row := range result {
-		fmt.Printf("User: ID=%v, Name=%q\n", row["id"], row["name"])
-	}
+	fmt.Printf("User: ID=%v, Name=%q, Age=%v\n", id, name, age)
 
 	// Output:
-	// Table created.
+	// Table created
 	// Inserted user. Last row ID: 1
-	// User: ID=1, Name="John Doe"
+	// User: ID=1, Name="John Doe", Age=35
 }
 
 func ExampleClient_Query() {
 	client := cfd1.NewClient(os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
 		os.Getenv("CLOUDFLARE_API_TOKEN"))
 
-	result, err := client.Query(context.Background(), "your-database-id",
-		`SELECT * FROM users WHERE age > ?`, 30)
+	result, err := client.Query(context.Background(), "11111111-2222-3333-4444-555555555555",
+		`SELECT id, name, age FROM users WHERE age > ?`, 30)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -75,8 +78,7 @@ func ExampleClient_Query() {
 	fmt.Printf("Rows read: %d\n", result.Meta.RowsRead)
 	// Output:
 	// User: ID=1, Name=John Doe, Age=35
-	// User: ID=3, Name=Jane Smith, Age=42
-	// Rows read: 3
+	// Rows read: 1
 }
 
 type ConsoleDebugLogger struct{}

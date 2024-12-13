@@ -96,7 +96,7 @@ type CFD1Client interface {
 	GetDatabase(ctx context.Context, databaseID string) (*DatabaseDetails, error)
 	ListDatabases(ctx context.Context, name string) ([]DatabaseDetails, error)
 	Query(ctx context.Context, databaseID, sql string, params ...any) (*QueryResult, error)
-	RawQuery(ctx context.Context, databaseID, sql string, params ...any) (*RawQueryResult, error)
+	RawQuery(ctx context.Context, databaseID, sql string, params ...any) ([]RawQueryResult, error)
 	ResetCounters()
 	RowsRead() int
 	RowsWritten() int

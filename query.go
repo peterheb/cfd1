@@ -67,7 +67,7 @@ func (c *Client) Query(ctx context.Context, databaseID, sql string, params ...an
 //	for _, row := range result.Results.Rows {
 //	    fmt.Printf("User: ID=%v, Name=%v\n", row[0], row[1])
 //	}
-func (c *Client) RawQuery(ctx context.Context, databaseID, sql string, params ...any) (*RawQueryResult, error) {
+func (c *Client) RawQuery(ctx context.Context, databaseID, sql string, params ...any) ([]RawQueryResult, error) {
 	body := map[string]any{
 		"sql":    sql,
 		"params": params,
@@ -77,5 +77,5 @@ func (c *Client) RawQuery(ctx context.Context, databaseID, sql string, params ..
 	if err != nil {
 		return nil, convertSQLiteError(err, sql, params)
 	}
-	return &result[0], nil
+	return result, nil
 }

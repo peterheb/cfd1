@@ -46,6 +46,30 @@ func (h *Handle) Query(ctx context.Context, sql string, params ...any) ([]map[st
 	return result.Results, nil
 }
 
+// Execute executes a SQL query on this database that has no results. The query
+// can contain multiple semicolon-separated statements, which will be executed
+// as a batch, and be up to 100KB. A maximum of 100 placeholder parameters can
+// be used.
+func (h *Handle) Execute(ctx context.Context, sql string, params ...any) error {
+	_, err := h.client.Query(ctx, h.dbID, sql, params...)
+	return err
+}
+
+// QueryRow executes a SQL query on this database and returns a single row of
+// results as a Row object, suitable for calling Scan. If the query returns
+// multiple rows, only the first row is reachable.
+func (h *Handle) QueryRow(ctx context.Context, sql string, params ...any) *Row {
+	result, err := h.client.RawQuery(ctx, h.dbID, sql, params...)
+	return newRow(&result[0], err)
+}
+
+// QueryRows executes a SQL query on this database and returns a Rows object
+// that can iterate the resultsets and rows.
+func (h *Handle) QueryRows(ctx context.Context, sql string, params ...any) *Rows {
+	result, err := h.client.RawQuery(ctx, h.dbID, sql, params...)
+	return newRows(result, err)
+}
+
 // Export initiates an export (SQL dump) on this database. It accepts an
 // optional [ExportOptions] to limit the scope of the export; passing nil for
 // this parameter will export the data and schema of all tables. The method
