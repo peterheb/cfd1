@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"time"
 )
 
 // Row is a single row of query results.
@@ -277,6 +278,19 @@ func assign(dest, src any) error {
 			switch sv.Kind() {
 			case reflect.String:
 				dv.SetBytes([]byte(sv.String()))
+				return nil
+			}
+		}
+
+	case reflect.Struct:
+		// If an int is mapped to a time.Time, it is treated as a unix timestamp
+		if dt == reflect.TypeOf(time.Time{}) {
+			switch sv.Kind() {
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				dv.Set(reflect.ValueOf(time.Unix(sv.Int(), 0).UTC()))
+				return nil
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				dv.Set(reflect.ValueOf(time.Unix(int64(sv.Uint()), 0).UTC()))
 				return nil
 			}
 		}
