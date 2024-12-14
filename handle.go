@@ -84,10 +84,10 @@ func (h *Handle) Export(ctx context.Context, opts *ExportOptions) (string, error
 // accepts the SQL dump as filename, reads it from disk, and waits until the
 // import is complete. The database will be unavailable for other queries for
 // the duration of the import.
-func (h *Handle) Import(ctx context.Context, sqlFilePath string) error {
+func (h *Handle) Import(ctx context.Context, sqlFilePath string) (*ImportResult, error) {
 	result, err := h.client.Import(ctx, h.dbID, sqlFilePath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	h.mux.Lock()
@@ -95,7 +95,7 @@ func (h *Handle) Import(ctx context.Context, sqlFilePath string) error {
 	h.rowsRead += result.RowsRead
 	h.rowsWritten += result.RowsWritten
 
-	return nil
+	return result, nil
 }
 
 // UUID returns the unique identifier for the database represented by this
