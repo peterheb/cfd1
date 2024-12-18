@@ -51,7 +51,7 @@ func (h *Handle) Query(ctx context.Context, sql string, params ...any) ([]map[st
 // as a batch, and be up to 100KB. A maximum of 100 placeholder parameters can
 // be used.
 func (h *Handle) Execute(ctx context.Context, sql string, params ...any) error {
-	_, err := h.client.Query(ctx, h.dbID, sql, params...)
+	_, err := h.Query(ctx, sql, params...)
 	return err
 }
 
