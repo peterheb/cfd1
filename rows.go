@@ -167,6 +167,8 @@ func assign(dest, src any) error {
 	sv := reflect.ValueOf(src)
 	st := sv.Type()
 
+	fmt.Printf("assign %v (kind %v type %v) to kind %v type %v\n", src, st.Kind(), st, dt.Kind(), dt)
+
 	// Handle scannable interfaces (sql.Scanner, etc)
 	if scanner, ok := dv.Interface().(sql.Scanner); ok {
 		return scanner.Scan(src)
