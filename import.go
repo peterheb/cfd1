@@ -1,6 +1,7 @@
 package cfd1
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -40,7 +42,9 @@ type ImportResult struct {
 // Import initiates an import for a D1 database. It accepts the database ID,
 // the path to the SQL file to import, and optional ImportOptions as parameters.
 // The method waits until the import is complete, polling the Cloudflare D1 API
-// if necessary.
+// if necessary. The sqlFilePath can optionally be to a gzipped file that ends
+// in ".gz", in which case it will be transparently decompressed before being
+// uploaded to the D1 API.
 //
 // The import process may take some time for larger databases, during which the
 // D1 database will be unavailable to serve queries.
@@ -77,7 +81,23 @@ func (c *Client) Import(ctx context.Context, databaseID, sqlFilePath string) (*I
 	var firstPollResp *importResponse
 	if initResp.UploadURL != "" {
 		// Upload required
-		if err := uploadFileToR2(ctx, initResp.UploadURL, sqlFilePath); err != nil {
+		file, err := os.Open(sqlFilePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open file: %w", err)
+		}
+		defer file.Close()
+
+		var reader io.Reader = file
+		if strings.HasSuffix(sqlFilePath, ".gz") {
+			gzReader, err := gzip.NewReader(file)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create gzip reader: %w", err)
+			}
+			defer gzReader.Close()
+			reader = gzReader
+		}
+
+		if err := uploadFileToR2(ctx, initResp.UploadURL, reader); err != nil {
 			return nil, fmt.Errorf("failed to upload file to R2: %w", err)
 		}
 
@@ -128,23 +148,11 @@ func (c *Client) importInit(ctx context.Context, path, fileHash string) (*import
 	return &response, nil
 }
 
-func uploadFileToR2(ctx context.Context, uploadURL, filePath string) error {
-	file, err := os.Open(filePath)
+func uploadFileToR2(ctx context.Context, uploadURL string, reader io.Reader) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, reader)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-
-	stat, err := file.Stat()
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, file)
-	if err != nil {
-		return err
-	}
-	req.ContentLength = stat.Size()
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -218,8 +226,18 @@ func calculateMD5(filePath string) (string, error) {
 	}
 	defer file.Close()
 
+	var reader io.Reader = file
+	if strings.HasSuffix(filePath, ".gz") {
+		gzReader, err := gzip.NewReader(file)
+		if err != nil {
+			return "", err
+		}
+		defer gzReader.Close()
+		reader = gzReader
+	}
+
 	hash := md5.New()
-	if _, err := io.Copy(hash, file); err != nil {
+	if _, err := io.Copy(hash, reader); err != nil {
 		return "", err
 	}
 
