@@ -296,7 +296,11 @@ func assign(dest, src any) error {
 				return nil
 			case reflect.Float64:
 				dv.Set(reflect.ValueOf(time.Unix(int64(sv.Float()), 0).UTC()))
+			default:
+				fmt.Printf("unhandled source kind for time.Time mapping: %v", sv.Kind())
 			}
+		} else {
+			fmt.Printf("struct is %v hoped for %v\n", dt, reflect.TypeOf(time.Time{}))
 		}
 	}
 
