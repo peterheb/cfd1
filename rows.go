@@ -292,6 +292,9 @@ func assign(dest, src any) error {
 			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 				dv.Set(reflect.ValueOf(time.Unix(int64(sv.Uint()), 0).UTC()))
 				return nil
+			case reflect.Float64:
+				dv.Set(reflect.ValueOf(time.Unix(int64(sv.Float()), 0).UTC()))
+				return nil
 			}
 		}
 	}
