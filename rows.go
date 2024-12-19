@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // Row is a single row of query results.
 type Row struct {
-	result *RawQueryResult
-	err    error
+	result   *RawQueryResult
+	fieldMap map[string]int
+	err      error
 }
 
 // Rows is a collection of rows of query results.
@@ -20,6 +22,7 @@ type Rows struct {
 	rs         *RawQueryResult
 	current    int
 	currentSet int
+	fieldMap   map[string]int
 	err        error
 }
 
@@ -81,6 +84,30 @@ func (r *Row) Scan(dest ...interface{}) error {
 	}
 
 	return nil
+}
+
+// ScanStruct scans the current row into a struct. The struct fields are matched
+// to the column names in the result set. The struct fields can be tagged with
+// `db`, `sql`, or `json` to specify the column name. If no tag is present, the
+// field name is used.
+func (r *Row) ScanStruct(dest interface{}) error {
+	if r.Err() != nil {
+		return r.Err()
+	}
+
+	v := reflect.ValueOf(dest)
+	if v.Kind() != reflect.Ptr || v.IsNil() {
+		return fmt.Errorf("dest must be a non-nil pointer to struct")
+	}
+	v = v.Elem()
+	if v.Kind() != reflect.Struct {
+		return fmt.Errorf("dest must be a pointer to struct")
+	}
+
+	if r.fieldMap == nil {
+		r.fieldMap = createFieldMap(v.Type())
+	}
+	return scanStructWithMap(r.result.Results.Columns, r.result.Results.Rows[0], v, r.fieldMap)
 }
 
 // Err returns the error, if any, that was encountered during iteration.
@@ -148,6 +175,34 @@ func (r *Rows) Scan(dest ...interface{}) error {
 	}
 
 	return nil
+}
+
+// ScanStruct scans the current row into a struct. The struct fields are matched
+// to the column names in the result set. The struct fields can be tagged with
+// `db`, `sql`, or `json` to specify the column name. If no tag is present, the
+// field name is used.
+func (r *Rows) ScanStruct(dest interface{}) error {
+	if r.Err() != nil {
+		return r.Err()
+	}
+
+	if r.current >= len(r.rs.Results.Rows) {
+		return sql.ErrNoRows
+	}
+
+	v := reflect.ValueOf(dest)
+	if v.Kind() != reflect.Ptr || v.IsNil() {
+		return fmt.Errorf("dest must be a non-nil pointer to struct")
+	}
+	v = v.Elem()
+	if v.Kind() != reflect.Struct {
+		return fmt.Errorf("dest must be a pointer to struct")
+	}
+
+	if r.fieldMap == nil {
+		r.fieldMap = createFieldMap(v.Type())
+	}
+	return scanStructWithMap(r.rs.Results.Columns, r.rs.Results.Rows[r.current], v, r.fieldMap)
 }
 
 func assign(dest, src any) error {
@@ -300,4 +355,85 @@ func assign(dest, src any) error {
 	}
 
 	return fmt.Errorf("cannot convert %v (type %v) to type %v", src, st, dt)
+}
+
+func createFieldMap(t reflect.Type) map[string]int {
+	fieldMap := make(map[string]int)
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+
+		// Check for db tag first
+		if tag := field.Tag.Get("db"); tag != "" {
+			if tag == "-" {
+				continue
+			}
+			fieldMap[tag] = i
+			continue
+		}
+
+		// Check for sql tag next
+		if tag := field.Tag.Get("sql"); tag != "" {
+			if tag == "-" {
+				continue
+			}
+			fieldMap[tag] = i
+			continue
+		}
+
+		// Check for json tag next
+		if tag := field.Tag.Get("json"); tag != "" {
+			if tag == "-" {
+				continue
+			}
+			fieldMap[tag] = i
+			continue
+		}
+
+		// Fall back to field name
+		fieldMap[strings.ToLower(field.Name)] = i
+	}
+	return fieldMap
+}
+
+func scanStructWithMap(cols []string, row []any, v reflect.Value, fieldMap map[string]int) error {
+	for i, col := range cols {
+		if fieldIndex, ok := fieldMap[strings.ToLower(col)]; ok {
+			field := v.Field(fieldIndex)
+			if field.CanSet() {
+				src := reflect.ValueOf(row[i]).Interface()
+				if err := assign(field.Addr().Interface(), src); err != nil {
+					return fmt.Errorf("error assigning column %s: %w", col, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func ScanStructs(cols []string, rows [][]any, dest interface{}) error {
+	v := reflect.ValueOf(dest)
+	if v.Kind() != reflect.Ptr || v.IsNil() {
+		return fmt.Errorf("dest must be a non-nil pointer to slice")
+	}
+	v = v.Elem()
+	if v.Kind() != reflect.Slice {
+		return fmt.Errorf("dest must be a pointer to slice")
+	}
+
+	// Create field map once for the struct type
+	elemType := v.Type().Elem()
+	fieldMap := createFieldMap(elemType)
+
+	// Create a new slice with the right capacity
+	newSlice := reflect.MakeSlice(v.Type(), len(rows), len(rows))
+
+	// Process each row
+	for i, row := range rows {
+		if err := scanStructWithMap(cols, row, newSlice.Index(i), fieldMap); err != nil {
+			return fmt.Errorf("error scanning row %d: %w", i, err)
+		}
+	}
+
+	v.Set(newSlice)
+	return nil
 }

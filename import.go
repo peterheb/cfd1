@@ -1,6 +1,7 @@
 package cfd1
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -146,6 +148,10 @@ func uploadFileToR2(ctx context.Context, uploadURL, filePath string) error {
 	}
 	req.ContentLength = stat.Size()
 
+	if strings.HasSuffix(filePath, ".gz") {
+		req.Header.Set("Content-Encoding", "gzip")
+	}
+
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -218,8 +224,18 @@ func calculateMD5(filePath string) (string, error) {
 	}
 	defer file.Close()
 
+	var reader io.Reader = file
+	if strings.HasSuffix(filePath, ".gz") {
+		gzReader, err := gzip.NewReader(file)
+		if err != nil {
+			return "", err
+		}
+		defer gzReader.Close()
+		reader = gzReader
+	}
+
 	hash := md5.New()
-	if _, err := io.Copy(hash, file); err != nil {
+	if _, err := io.Copy(hash, reader); err != nil {
 		return "", err
 	}
 
