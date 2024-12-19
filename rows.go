@@ -233,6 +233,12 @@ func assign(dest, src any) error {
 		return nil
 	}
 
+	// Handle conversion from []byte to string
+	if st.Kind() == reflect.Slice && st.Elem().Kind() == reflect.Uint8 && dt.Kind() == reflect.String {
+		dv.SetString(string(sv.Bytes()))
+		return nil
+	}
+
 	// Special case conversions
 	switch dt.Kind() {
 	case reflect.String:
