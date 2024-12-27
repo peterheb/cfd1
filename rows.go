@@ -390,6 +390,10 @@ func scanStructWithMap(cols []string, row []any, v reflect.Value, fieldMap map[s
 		if fieldIndex, ok := fieldMap[strings.ToLower(col)]; ok {
 			field := v.Field(fieldIndex)
 			if field.CanSet() {
+				if row[i] == nil {
+					field.Set(reflect.Zero(field.Type()))
+					continue
+				}
 				src := reflect.ValueOf(row[i]).Interface()
 				if err := assign(field.Addr().Interface(), src); err != nil {
 					return fmt.Errorf("error assigning column %s: %w", col, err)
