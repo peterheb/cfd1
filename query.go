@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 // QueryMeta represents metadata about a database query execution.
@@ -36,20 +37,42 @@ type RawQueryResult struct {
 	Success bool `json:"success"`
 }
 
+func convertTypes(input []any) []any {
+	result := make([]any, len(input))
+
+	for i, v := range input {
+		switch val := v.(type) {
+		case time.Time:
+			result[i] = int(val.UTC().Unix())
+		case bool:
+			if val {
+				result[i] = 1
+			} else {
+				result[i] = 0
+			}
+		default:
+			result[i] = v
+		}
+	}
+
+	return result
+}
+
 // Query executes a SQL query on the specified database and returns the results.
 // Each row is returned as a map[string]any, where the key is the column name.
 // Parameterized queries are supported to prevent SQL injection.
 //
 // Returns a [QueryResult] containing the query results and metadata.
 func (c *Client) Query(ctx context.Context, databaseID, sql string, params ...any) (*QueryResult, error) {
+	p2 := convertTypes(params)
 	body := map[string]any{
 		"sql":    sql,
-		"params": params,
+		"params": convertTypes(p2),
 	}
 	var result []QueryResult
 	err := c.sendRequest(ctx, http.MethodPost, fmt.Sprintf("/database/%s/query", databaseID), body, &result, nil)
 	if err != nil {
-		return nil, convertSQLiteError(err, sql, params)
+		return nil, convertSQLiteError(err, sql, p2)
 	}
 	return &result[0], nil
 }
@@ -68,14 +91,15 @@ func (c *Client) Query(ctx context.Context, databaseID, sql string, params ...an
 //	    fmt.Printf("User: ID=%v, Name=%v\n", row[0], row[1])
 //	}
 func (c *Client) RawQuery(ctx context.Context, databaseID, sql string, params ...any) ([]RawQueryResult, error) {
+	p2 := convertTypes(params)
 	body := map[string]any{
 		"sql":    sql,
-		"params": params,
+		"params": p2,
 	}
 	var result []RawQueryResult
 	err := c.sendRequest(ctx, http.MethodPost, fmt.Sprintf("/database/%s/raw", databaseID), body, &result, nil)
 	if err != nil {
-		return nil, convertSQLiteError(err, sql, params)
+		return nil, convertSQLiteError(err, sql, p2)
 	}
 	return result, nil
 }

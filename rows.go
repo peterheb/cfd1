@@ -341,6 +341,14 @@ func assign(dest, src any) error {
 			case reflect.Float64:
 				dv.Set(reflect.ValueOf(time.Unix(int64(sv.Float()), 0).UTC()))
 				return nil
+			case reflect.String:
+				if t, err := time.Parse(time.RFC3339, sv.String()); err == nil {
+					dv.Set(reflect.ValueOf(t))
+					return nil
+				} else if i, err := strconv.ParseInt(sv.String(), 0, 64); err == nil {
+					dv.Set(reflect.ValueOf(time.Unix(i, 0).UTC()))
+					return nil
+				}
 			}
 		}
 	}

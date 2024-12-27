@@ -58,6 +58,8 @@ func TestAssign(t *testing.T) {
 		{"Assign time.Time from int", new(time.Time), int(1257894000), time.Date(2009, 11, 10, 23, 0, 0, 0, time.UTC), false},
 		{"Assign time.Time from uint", new(time.Time), uint(1257894000), time.Date(2009, 11, 10, 23, 0, 0, 0, time.UTC), false},
 		{"Assign time.Time from float64", new(time.Time), float64(1257894000), time.Date(2009, 11, 10, 23, 0, 0, 0, time.UTC), false},
+		{"Assign time.Time from RFC3339 string", new(time.Time), "2009-11-10T23:00:00Z", time.Date(2009, 11, 10, 23, 0, 0, 0, time.UTC), false},
+		{"Assign time.Time from int string", new(time.Time), "1257894000", time.Date(2009, 11, 10, 23, 0, 0, 0, time.UTC), false},
 
 		// Edge Cases
 		{"Assign nil to int", new(int), nil, 0, false},
