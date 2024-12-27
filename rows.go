@@ -227,15 +227,22 @@ func assign(dest, src any) error {
 		return scanner.Scan(src)
 	}
 
+	// Handle special cases (e.g., int -> string) before ConvertibleTo().
+	// Otherwise, 42 converts to "*" not "42".
+	if dt.Kind() == reflect.String && (st.Kind() == reflect.Int || st.Kind() == reflect.Uint) {
+		switch st.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			dv.SetString(strconv.FormatInt(sv.Int(), 10))
+			return nil
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			dv.SetString(strconv.FormatUint(sv.Uint(), 10))
+			return nil
+		}
+	}
+
 	// If types match directly, fast path
 	if st.ConvertibleTo(dt) {
 		dv.Set(sv.Convert(dt))
-		return nil
-	}
-
-	// Handle conversion from []byte to string
-	if st.Kind() == reflect.Slice && st.Elem().Kind() == reflect.Uint8 && dt.Kind() == reflect.String {
-		dv.SetString(string(sv.Bytes()))
 		return nil
 	}
 
@@ -243,23 +250,12 @@ func assign(dest, src any) error {
 	switch dt.Kind() {
 	case reflect.String:
 		switch sv.Kind() {
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			dv.SetString(strconv.FormatInt(sv.Int(), 10))
-			return nil
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			dv.SetString(strconv.FormatUint(sv.Uint(), 10))
-			return nil
 		case reflect.Float32, reflect.Float64:
 			dv.SetString(strconv.FormatFloat(sv.Float(), 'f', -1, 64))
 			return nil
 		case reflect.Bool:
 			dv.SetString(strconv.FormatBool(sv.Bool()))
 			return nil
-		case reflect.Slice:
-			if sv.Type().Elem().Kind() == reflect.Uint8 { // []byte
-				dv.SetString(string(sv.Bytes()))
-				return nil
-			}
 		}
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -269,9 +265,6 @@ func assign(dest, src any) error {
 				dv.SetInt(i)
 				return nil
 			}
-		case reflect.Float32, reflect.Float64:
-			dv.SetInt(int64(sv.Float()))
-			return nil
 		case reflect.Bool:
 			if sv.Bool() {
 				dv.SetInt(1)
@@ -288,9 +281,6 @@ func assign(dest, src any) error {
 				dv.SetUint(i)
 				return nil
 			}
-		case reflect.Float32, reflect.Float64:
-			dv.SetUint(uint64(sv.Float()))
-			return nil
 		case reflect.Bool:
 			if sv.Bool() {
 				dv.SetUint(1)
@@ -307,9 +297,6 @@ func assign(dest, src any) error {
 				dv.SetFloat(f)
 				return nil
 			}
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			dv.SetFloat(float64(sv.Int()))
-			return nil
 		case reflect.Bool:
 			if sv.Bool() {
 				dv.SetFloat(1)
@@ -329,23 +316,21 @@ func assign(dest, src any) error {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 			dv.SetBool(sv.Int() != 0)
 			return nil
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			dv.SetBool(sv.Uint() != 0)
+			return nil
 		case reflect.Float32, reflect.Float64:
 			dv.SetBool(sv.Float() != 0)
 			return nil
 		}
 
-	case reflect.Slice:
-		if dt.Elem().Kind() == reflect.Uint8 { // []byte
-			switch sv.Kind() {
-			case reflect.String:
-				dv.SetBytes([]byte(sv.String()))
+	case reflect.Struct:
+		// If a numeric is mapped to a time.Time, it is treated as a unix timestamp
+		if dt == reflect.TypeOf(time.Time{}) {
+			if !sv.IsValid() {
+				dv.Set(reflect.Zero(dt))
 				return nil
 			}
-		}
-
-	case reflect.Struct:
-		// If an int is mapped to a time.Time, it is treated as a unix timestamp
-		if dt == reflect.TypeOf(time.Time{}) {
 			switch sv.Kind() {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 				dv.Set(reflect.ValueOf(time.Unix(sv.Int(), 0).UTC()))
@@ -359,8 +344,7 @@ func assign(dest, src any) error {
 			}
 		}
 	}
-
-	return fmt.Errorf("cannot convert %v (type %v) to type %v", src, st, dt)
+	return fmt.Errorf("cannot convert value %v (type %v.%v) to destination type %v.%v", src, st.PkgPath(), st.Name(), dt.PkgPath(), dt.Name())
 }
 
 func createFieldMap(t reflect.Type) map[string]int {

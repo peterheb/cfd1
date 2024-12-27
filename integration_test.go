@@ -126,8 +126,8 @@ func TestIntegrationD1(t *testing.T) {
 
 		// List with more specific filter
 		filtered, err := client.ListDatabases(ctx, prefix+"-list")
-		is.NoErr(err)
-		is.Equal(len(filtered), 2)
+		is.NoErr(err)              // listing failed
+		is.Equal(len(filtered), 2) // wrong number of databases returned
 	})
 
 	t.Run("Error handling", func(t *testing.T) {
@@ -146,8 +146,8 @@ func TestIntegrationD1(t *testing.T) {
 
 		// Test SQL syntax error
 		_, err = client.Query(ctx, db.UUID, "SELECT * FROM nonexistent_table")
-		is.True(err != nil)
-		is.True(strings.Contains(err.Error(), "SQLITE_ERROR"))
+		is.True(err != nil)                                    // exoected error
+		is.True(strings.Contains(err.Error(), "SQLITE_ERROR")) // expected SQLITE_ERROR
 
 		// Test constraint violation
 		_, err = client.Query(ctx, db.UUID, `
@@ -161,7 +161,7 @@ func TestIntegrationD1(t *testing.T) {
 		_, err = client.Query(ctx, db.UUID, `
             INSERT INTO users (email) VALUES (?), (?)
         `, "same@email.com", "same@email.com")
-		is.True(err != nil)
-		is.True(strings.Contains(err.Error(), "SQLITE_CONSTRAINT"))
+		is.True(err != nil)                                         // expected error
+		is.True(strings.Contains(err.Error(), "SQLITE_CONSTRAINT")) // expected SQLITE_CONSTRAINT
 	})
 }
