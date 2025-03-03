@@ -60,7 +60,11 @@ func (h *Handle) Execute(ctx context.Context, sql string, params ...any) error {
 // multiple rows, only the first row is reachable.
 func (h *Handle) QueryRow(ctx context.Context, sql string, params ...any) *Row {
 	result, err := h.client.RawQuery(ctx, h.dbID, sql, params...)
-	return newRow(&result[0], err)
+	if err == nil {
+		return newRow(&result[0], err)
+	} else {
+		return newRow(nil, err)
+	}
 }
 
 // QueryRows executes a SQL query on this database and returns a Rows object

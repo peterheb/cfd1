@@ -43,6 +43,10 @@ func convertTypes(input []any) []any {
 	for i, v := range input {
 		switch val := v.(type) {
 		case time.Time:
+			if val.IsZero() {
+				result[i] = 0
+				continue
+			}
 			result[i] = int(val.UTC().Unix())
 		case bool:
 			if val {
